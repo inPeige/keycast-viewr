@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QMenu,
+    QSizeGrip,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -108,9 +109,15 @@ class MainWindow(QMainWindow):
         root.addWidget(splitter)
         self.setCentralWidget(self._backdrop)
 
+        # Resize handle (frameless windows have no native one).
+        self._grip = QSizeGrip(self._backdrop)
+        self._grip.setFixedSize(16, 16)
+
         self._connect_bridge()
 
         # --- Floating overlay behavior ------------------------------- #
+        # Frameless + translucent so the whole window is transparent (no OS
+        # title bar). Always on top, and never steals keyboard focus.
         self._on_top = True
         self._float_applied = False
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
@@ -191,6 +198,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     def _apply_window_flags(self):
         flags = self.windowFlags()
+        flags |= Qt.FramelessWindowHint          # no OS title bar -> transparent
         flags |= Qt.WindowDoesNotAcceptFocus
         if self._on_top:
             flags |= Qt.WindowStaysOnTopHint
@@ -203,8 +211,29 @@ class MainWindow(QMainWindow):
         self._apply_window_flags()
         self.show()
 
+    # Drag the whole window to move it (there's no title bar to grab).
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            handle = self.windowHandle()
+            if handle is not None:
+                handle.startSystemMove()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def _position_grip(self):
+        b = self._backdrop
+        s = self._grip.size()
+        self._grip.move(b.width() - s.width() - 5, b.height() - s.height() - 5)
+        self._grip.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_grip()
+
     def showEvent(self, event):
         super().showEvent(event)
+        self._position_grip()
         if not self._float_applied:
             try:
                 from .macos_overlay import make_window_float
@@ -234,6 +263,7 @@ class MainWindow(QMainWindow):
             ("55%", 140),
             ("40%", 102),
             ("25%", 64),
+            ("全透明 0%（只显示按键）", 0),
         ]:
             act = QAction(label, self, checkable=True)
             act.setChecked(abs(current - val) < 8)
