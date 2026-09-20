@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget
 
 from . import theme
@@ -15,7 +16,7 @@ _SCALE = 100
 class KeyboardView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(f"background: {theme.BG_PANEL}; border-radius: 10px;")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self._caps: dict[str, list[KeyCap]] = {}
 
         outer = QVBoxLayout(self)

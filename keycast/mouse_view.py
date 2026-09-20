@@ -12,8 +12,8 @@ from . import theme
 class MouseView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(f"background: {theme.BG_PANEL}; border-radius: 10px;")
-        self.setMinimumSize(90, 130)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMinimumSize(84, 116)
         self._active: set[str] = set()
         self._scroll_dir: str | None = None
         self._scroll_timer = QTimer(self)

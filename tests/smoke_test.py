@@ -54,15 +54,17 @@ check(tokens == ["Ctrl", "Shift", "K"], f"ordering expected Ctrl,Shift,K got {to
 bridge.keyReleased.emit("k"); bridge.keyReleased.emit("shift_r"); bridge.keyReleased.emit("ctrl_l")
 app.processEvents()
 
-# 4) Mouse left click + scroll
+# 4) Mouse click lights the mouse graphic but must NOT appear in the top combo
 bridge.buttonPressed.emit("mouse_left")
 app.processEvents()
-check("L-Click" in w._compute_tokens(), f"mouse left should appear, got {w._compute_tokens()}")
-check("mouse_left" in w.mouse._active, "mouse_left should be active on mouse view")
+check("mouse_left" in w.mouse._active, "mouse_left should light the mouse graphic")
+check("L-Click" not in w._compute_tokens(), "mouse click must NOT appear in top combo")
+check(w._compute_tokens() == [], f"combo should stay empty on mouse click, got {w._compute_tokens()}")
 bridge.buttonReleased.emit("mouse_left")
 bridge.scrolled.emit("scroll_up")
 app.processEvents()
 check(w.mouse._scroll_dir == "scroll_up", "scroll_up should flash")
+check("Scroll\u2191" not in w._compute_tokens(), "scroll must NOT appear in top combo")
 
 # 5) Force every custom widget to paint (catches paint-time exceptions)
 for widget in (w.overlay, w.keyboard, w.mouse):

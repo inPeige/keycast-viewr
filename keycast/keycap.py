@@ -19,6 +19,7 @@ class KeyCap(QWidget):
         self.sub = spec.get("sub")
         self.kind = spec.get("kind", "std")
         self._active = False
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setMinimumSize(20, 20)
 
     def set_active(self, active: bool):

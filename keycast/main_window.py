@@ -1,9 +1,13 @@
-"""Main application window: top overlay + bottom (keyboard + mouse)."""
+"""Main application window: top (mouse + enlarged combo) over keyboard.
+
+Background is a single semi-transparent rounded panel so the whole thing reads
+as one translucent overlay you can see the desktop through.
+"""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QRectF
+from PySide6.QtGui import QAction, QActionGroup, QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
@@ -21,7 +25,9 @@ from .overlay_view import OverlayView
 
 # Modifier grouping / ordering for the top combo.
 _MOD_ORDER = {"ctrl": 0, "alt": 1, "shift": 2, "win": 3}
-_MOUSE_IDS = {"mouse_left", "mouse_right", "mouse_middle"}
+# Mouse/scroll ids never appear as text in the top combo (they light up the
+# mouse graphic instead).
+_MOUSE_IDS = {"mouse_left", "mouse_right", "mouse_middle", "scroll_up", "scroll_down"}
 
 
 def _base(cid: str) -> str:
@@ -30,16 +36,46 @@ def _base(cid: str) -> str:
     return cid
 
 
+class Backdrop(QWidget):
+    """Paints the unified semi-transparent rounded background."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._alpha = 205  # 0-255
+
+    def set_alpha(self, alpha: int):
+        self._alpha = max(0, min(255, alpha))
+        self.update()
+
+    def alpha(self) -> int:
+        return self._alpha
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(rect, 14, 14)
+        col = QColor(theme.BG_WINDOW)
+        col.setAlpha(self._alpha)
+        p.fillPath(path, col)
+        p.setPen(QPen(QColor(255, 255, 255, 20), 1.0))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        p.end()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, bridge, parent=None):
         super().__init__(parent)
         self.bridge = bridge
         self.setWindowTitle("KeyCast Viewer")
-        self.setMinimumSize(720, 380)
-        self.resize(1000, 560)
-        self.setStyleSheet(f"background: {theme.BG_WINDOW};")
+        self.setMinimumSize(720, 340)
+        self.resize(980, 480)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # Active input tracking (cid -> monotonic sequence number).
+        # Active keyboard input tracking (cid -> monotonic sequence number).
         self._active_order: dict[str, int] = {}
         self._seq = 0
 
@@ -47,41 +83,34 @@ class MainWindow(QMainWindow):
         self.overlay = OverlayView()
         self.keyboard = KeyboardView()
         self.mouse = MouseView()
+        self.mouse.setMaximumWidth(168)
 
-        bottom = QWidget()
-        bottom.setStyleSheet(f"background: {theme.BG_WINDOW};")
-        bottom_layout = QHBoxLayout(bottom)
-        bottom_layout.setContentsMargins(10, 6, 10, 10)
-        bottom_layout.setSpacing(10)
-        bottom_layout.addWidget(self.keyboard, 5)
-        bottom_layout.addWidget(self.mouse, 1)
+        # Top row: compact mouse on the left, enlarged combo filling the rest.
+        top = QWidget()
+        top.setAttribute(Qt.WA_TranslucentBackground, True)
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(14, 10, 14, 4)
+        top_layout.setSpacing(14)
+        top_layout.addWidget(self.mouse, 0)
+        top_layout.addWidget(self.overlay, 1)
 
         splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self.overlay)
-        splitter.addWidget(bottom)
+        splitter.addWidget(top)
+        splitter.addWidget(self.keyboard)
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 5)
-        splitter.setSizes([180, 420])
+        splitter.setSizes([190, 360])
         splitter.setHandleWidth(4)
 
-        container = QWidget()
-        root = QVBoxLayout(container)
-        root.setContentsMargins(0, 0, 0, 0)
+        self._backdrop = Backdrop()
+        root = QVBoxLayout(self._backdrop)
+        root.setContentsMargins(10, 10, 10, 10)
         root.addWidget(splitter)
-        self.setCentralWidget(container)
-
-        # Timer to refresh overlay after a transient scroll token.
-        self._scroll_refresh = QTimer(self)
-        self._scroll_refresh.setSingleShot(True)
-        self._scroll_refresh.setInterval(260)
-        self._scroll_refresh.timeout.connect(self._refresh_overlay)
+        self.setCentralWidget(self._backdrop)
 
         self._connect_bridge()
 
         # --- Floating overlay behavior ------------------------------- #
-        # Stay above other apps by default and never steal keyboard focus,
-        # so you can keep operating whatever app you're using while this
-        # window remains visible on top instead of being sent to the back.
         self._on_top = True
         self._float_applied = False
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
@@ -97,7 +126,7 @@ class MainWindow(QMainWindow):
         b.scrolled.connect(self._on_scrolled)
 
     # ------------------------------------------------------------------ #
-    # Slots
+    # Keyboard -> top combo + keyboard highlight
     # ------------------------------------------------------------------ #
     def _on_key_pressed(self, cid: str):
         self.keyboard.set_key_active(cid, True)
@@ -109,22 +138,17 @@ class MainWindow(QMainWindow):
         self._remove_active(cid)
         self._refresh_overlay()
 
+    # ------------------------------------------------------------------ #
+    # Mouse -> ONLY lights up the mouse graphic (no text in the combo)
+    # ------------------------------------------------------------------ #
     def _on_button_pressed(self, cid: str):
         self.mouse.set_button_active(cid, True)
-        self._add_active(cid)
-        self._refresh_overlay()
 
     def _on_button_released(self, cid: str):
         self.mouse.set_button_active(cid, False)
-        self._remove_active(cid)
-        self._refresh_overlay()
 
     def _on_scrolled(self, direction: str):
         self.mouse.flash_scroll(direction)
-        tokens = self._compute_tokens()
-        tokens.append(display_name(direction))
-        self.overlay.set_combo(tokens)
-        self._scroll_refresh.start()
 
     # ------------------------------------------------------------------ #
     def _add_active(self, cid: str):
@@ -139,6 +163,8 @@ class MainWindow(QMainWindow):
         mods = []
         others = []
         for cid, seq in sorted(self._active_order.items(), key=lambda kv: kv[1]):
+            if cid in _MOUSE_IDS:
+                continue
             base = _base(cid)
             name = display_name(cid)
             if base in _MOD_ORDER:
@@ -161,24 +187,10 @@ class MainWindow(QMainWindow):
         self.overlay.set_combo(self._compute_tokens())
 
     # ------------------------------------------------------------------ #
-    # Context menu: always-on-top toggle + quit.
+    # Window flags / floating behavior
     # ------------------------------------------------------------------ #
-    def contextMenuEvent(self, event):
-        menu = QMenu(self)
-        top_action = QAction("Always on top", self, checkable=True)
-        top_action.setChecked(self._on_top)
-        top_action.triggered.connect(self._toggle_on_top)
-        menu.addAction(top_action)
-        menu.addSeparator()
-        quit_action = QAction("Quit", self)
-        quit_action.triggered.connect(self.close)
-        menu.addAction(quit_action)
-        menu.exec(event.globalPos())
-
     def _apply_window_flags(self):
         flags = self.windowFlags()
-        # Never take keyboard focus -> your typing keeps going to the app
-        # you're actually using; this window just stays visible on top.
         flags |= Qt.WindowDoesNotAcceptFocus
         if self._on_top:
             flags |= Qt.WindowStaysOnTopHint
@@ -189,18 +201,51 @@ class MainWindow(QMainWindow):
     def _toggle_on_top(self, checked: bool):
         self._on_top = checked
         self._apply_window_flags()
-        self.show()  # WA_ShowWithoutActivating keeps focus on the other app
+        self.show()
 
     def showEvent(self, event):
         super().showEvent(event)
-        # Best-effort macOS enhancement: float across all Spaces and above
-        # fullscreen apps. No-ops on Windows or if pyobjc isn't installed.
         if not self._float_applied:
             try:
                 from .macos_overlay import make_window_float
                 self._float_applied = make_window_float(self)
             except Exception:
                 self._float_applied = False
+
+    # ------------------------------------------------------------------ #
+    # Context menu: on-top toggle, background opacity, quit.
+    # ------------------------------------------------------------------ #
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+
+        top_action = QAction("Always on top", self, checkable=True)
+        top_action.setChecked(self._on_top)
+        top_action.triggered.connect(self._toggle_on_top)
+        menu.addAction(top_action)
+
+        opacity_menu = menu.addMenu("背景透明度")
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        current = self._backdrop.alpha()
+        for label, val in [
+            ("不透明 100%", 255),
+            ("85%", 216),
+            ("70%", 180),
+            ("55%", 140),
+            ("40%", 102),
+            ("25%", 64),
+        ]:
+            act = QAction(label, self, checkable=True)
+            act.setChecked(abs(current - val) < 8)
+            act.triggered.connect(lambda _=False, v=val: self._backdrop.set_alpha(v))
+            group.addAction(act)
+            opacity_menu.addAction(act)
+
+        menu.addSeparator()
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.close)
+        menu.addAction(quit_action)
+        menu.exec(event.globalPos())
 
     def closeEvent(self, event):
         try:

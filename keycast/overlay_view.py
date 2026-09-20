@@ -12,7 +12,7 @@ from . import theme
 class OverlayView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(f"background: {theme.BG_WINDOW};")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setMinimumHeight(90)
         self._tokens: list[str] = []
         self._linger = QTimer(self)
