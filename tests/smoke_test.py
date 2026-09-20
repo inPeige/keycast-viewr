@@ -22,6 +22,12 @@ def check(cond, msg):
     if not cond:
         failures.append(msg)
 
+# 0) Floating-overlay behavior
+from PySide6.QtCore import Qt
+check(bool(w.windowFlags() & Qt.WindowStaysOnTopHint), "should be always-on-top by default")
+check(bool(w.windowFlags() & Qt.WindowDoesNotAcceptFocus), "should not accept keyboard focus")
+check(w.testAttribute(Qt.WA_ShowWithoutActivating), "should show without activating")
+
 # 1) Simulate Alt + A
 bridge.keyPressed.emit("alt_l")
 bridge.keyPressed.emit("a")

@@ -77,7 +77,15 @@ class MainWindow(QMainWindow):
         self._scroll_refresh.timeout.connect(self._refresh_overlay)
 
         self._connect_bridge()
-        self._on_top = False
+
+        # --- Floating overlay behavior ------------------------------- #
+        # Stay above other apps by default and never steal keyboard focus,
+        # so you can keep operating whatever app you're using while this
+        # window remains visible on top instead of being sent to the back.
+        self._on_top = True
+        self._float_applied = False
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self._apply_window_flags()
 
     # ------------------------------------------------------------------ #
     def _connect_bridge(self):
@@ -167,15 +175,32 @@ class MainWindow(QMainWindow):
         menu.addAction(quit_action)
         menu.exec(event.globalPos())
 
-    def _toggle_on_top(self, checked: bool):
-        self._on_top = checked
+    def _apply_window_flags(self):
         flags = self.windowFlags()
-        if checked:
+        # Never take keyboard focus -> your typing keeps going to the app
+        # you're actually using; this window just stays visible on top.
+        flags |= Qt.WindowDoesNotAcceptFocus
+        if self._on_top:
             flags |= Qt.WindowStaysOnTopHint
         else:
             flags &= ~Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
-        self.show()
+
+    def _toggle_on_top(self, checked: bool):
+        self._on_top = checked
+        self._apply_window_flags()
+        self.show()  # WA_ShowWithoutActivating keeps focus on the other app
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Best-effort macOS enhancement: float across all Spaces and above
+        # fullscreen apps. No-ops on Windows or if pyobjc isn't installed.
+        if not self._float_applied:
+            try:
+                from .macos_overlay import make_window_float
+                self._float_applied = make_window_float(self)
+            except Exception:
+                self._float_applied = False
 
     def closeEvent(self, event):
         try:

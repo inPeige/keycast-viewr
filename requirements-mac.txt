@@ -1,0 +1,3 @@
+# macOS-only extras (do NOT add to requirements.txt — pyobjc won't install on Windows).
+# Enables true floating overlay across Spaces / over fullscreen apps.
+pyobjc-framework-Cocoa>=9.0
